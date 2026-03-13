@@ -9,5 +9,12 @@
     "express": "^4.18.2",
     "jsdom": "^28.1.0",
     "socket.io": "^4.7.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.72.0"
+  },
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "preview": "wrangler dev"
   }
 }
