@@ -1,101 +1,910 @@
-<!DOCTYPE html>
+t<!DOCTYPE html>
 <html>
 <head>
-    <title>NodeBattleship</title>
+    <title>Battleship</title>
     <meta charset="UTF-8">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.4/css/bootstrap.min.css">
-    <link rel="stylesheet" href="/css/site.css">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        /* generic resets */
+        body, html { margin:0; padding:0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:#e3e8ef; color:#333; }
+        h2,h3 { margin:0; }
+        #game-container { display:flex; padding:20px; justify-content:center; }
+        #sidebar { width:180px; margin-right:20px; background:#fff; border:1px solid #ccc; padding:10px; border-radius:8px; box-shadow:0 0 10px rgba(0,0,0,0.1); }
+        #sidebar h2 { font-size:1.2em; margin-bottom:10px; text-align:center; }
+        #sidebar button { width:100%; padding:6px 0; border:none; background:#007bff; color:#fff; cursor:pointer; border-radius:4px; transition:background .2s; }
+        #sidebar button:hover { background:#0056b3; }
+        #boards { display:flex; }
+        .board-container { margin-right:30px; }
+        .board-container h3 { text-align:center; margin-bottom:5px; }
+        table.grid { border-collapse: collapse; background:#cfd8e3; }
+        table.grid th, table.grid td { width:34px; height:34px; text-align:center; vertical-align:middle; border:1px solid #666; position:relative; font-size:0.9em; }
+        table.grid th { background:#b0bec5; font-weight:normal; }
+        .cell.ship { background:#607d8b; }
+        .cell.hit { background:#E62E2E; animation:shake 0.3s; color:#fff; font-weight:bold; }
+        .cell.miss { background:#90a4ae; animation:splash 0.5s; color:#333; }
+        .cell:hover { background:#b3e5fc; cursor:pointer; }
+        #status { margin-top:15px; font-weight:bold; text-align:center; }
+        #overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); display:flex; align-items:center; justify-content:center; }
+        #overlay.hidden { display:none; }
+        #overlay-content { background:#fff; padding:30px; text-align:center; border-radius:12px; box-shadow:0 0 15px rgba(0,0,0,0.3); }
+        #overlay-content h1 { margin-bottom:20px; font-size:2em; }
+        #overlay-content button { padding:10px 20px; font-size:1em; border:none; background:#28a745; color:#fff; border-radius:6px; cursor:pointer; }
+        #overlay-content button:hover { background:#218838; }
+        #ship-tracker { list-style:none; padding:0; margin:0; }
+        #ship-tracker li { padding:4px 0; font-size:0.95em; }
+        #ship-tracker li.sunk { text-decoration: line-through; color:#a00; }
+        @keyframes shake {
+            0% { transform: translateX(0); }
+            25% { transform: translateX(-3px); }
+            50% { transform: translateX(3px); }
+            75% { transform: translateX(-3px); }
+            100% { transform: translateX(0); }
+        }
+        @keyframes splash {
+            0% { background: #ccc; }
+            50% { background: #fff; }
+            100% { background: #ccc; }
+        }
+        /* overlays */
+        .overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); display:flex; align-items:center; justify-content:center; }
+        .overlay.hidden { display:none; }
+        .overlay-content { background:#fff; padding:30px; text-align:center; border-radius:12px; box-shadow:0 0 15px rgba(0,0,0,0.3); }
+        .overlay-content h1 { margin-bottom:20px; }
+        .overlay-content button { padding:10px 20px; font-size:1em; border:none; background:#007bff; color:#fff; border-radius:6px; cursor:pointer; margin:5px; }
+        .overlay-content button:hover { background:#0056b3; }
+        .overlay-content p { font-size:1.1em; margin-bottom:20px; }
+    </style>
 </head>
 <body>
-<div class="container">
-    <div class="row vertical-center-row">
-        <div class="col-md-12">
-
-            <!-- Disconnected from server -->
-            <div id="disconnected">
-                <div class="row">
-                    <div class="col-sm-4 col-sm-offset-4 text-center">
-                        <div class="alert alert-danger">
-                            <p>Not connected to server.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Waiting room -->
-            <div id="waiting-room" style="display:none;">
-                <div class="row">
-                    <div class="col-sm-4 col-sm-offset-4 text-center">
-                        <div class="panel panel-primary">
-                            <div class="panel-heading">Waiting Room</div>
-                            <div class="panel-body">
-                                <p>You are connected to the server.</p>
-                                <p>Waiting for another player...</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Game -->
-            <div id="game" style="display:none;">
-                <div class="row">
-                    <div class="col-md-12">
-                        <div class="panel panel-primary">
-                            <div class="panel-heading">Battleship Game #<span id="game-number"></span></div>
-                            <div class="panel-body">
-
-                                <!-- Player grids -->
-                                <div class="row">
-                                    <div class="col-md-6 player-grid text-center">
-                                        <h3>You</h3>
-                                        <canvas id="canvas-grid1" width="361" height="361">Browser does not support canvas.</canvas>
-                                    </div>
-                                    <div class="col-md-6 player-grid text-center">
-                                        <h3>Opponent</h3>
-                                        <canvas id="canvas-grid2" width="361" height="361">Browser does not support canvas.</canvas>
-                                    </div>
-                                </div>
-                                
-                                
-                            </div>
-
-                            <ul class="list-group">
-                                <!-- Status -->
-                                <li class="list-group-item text-center" id="turn-status"></li>
-
-                                <!-- Chat messages -->
-                                <li class="list-group-item" id="messages-list">
-                                    <ul id="messages"></ul>
-                                </li>
-
-                                <!-- Send chat message form -->
-                                <li class="list-group-item">
-                                    <form id="message-form" action="">
-                                        <div class="input-group">
-                                        <input id="message" class="form-control" autocomplete="off" />
-                                        <div class="input-group-btn">
-                                            <button class="btn btn-primary">Send Message</button>
-                                        </div>
-                                        </div>
-                                    </form>
-                                </li>
-                            </ul>
-
-                        </div>
-                    </div>
-                </div>
-            </div>
-
+<div id="game-container">
+    <div id="sidebar">
+        <h2>Ships</h2>
+        <ul id="ship-tracker"></ul>
+        <button id="rotate-button">Rotate (H)</button>
+        <p id="placement-info"></p>
+    </div>
+    <div id="boards">
+        <div class="board-container">
+            <h3>Your Grid</h3>
+            <table id="player-grid" class="grid"></table>
+        </div>
+        <div class="board-container">
+            <h3>Enemy Grid</h3>
+            <table id="enemy-grid" class="grid"></table>
         </div>
     </div>
 </div>
 
-<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
-<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.4/js/bootstrap.min.js"></script>
-<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/1.3.5/socket.io.min.js"></script>
-<script type="text/javascript" src="/js/game.js"></script>
-<script type="text/javascript" src="/js/client.js"></script>
+<div id="status"></div>
+
+<!-- mode selection overlay (shown at start) -->
+<div id="mode-overlay" class="overlay">
+    <div class="overlay-content">
+        <h1>Select Mode</h1>
+        <button id="btn-vsCPU">Vs CPU</button>
+        <button id="btn-vsPlayer">Local (Pass & Play)</button>
+        <button id="btn-vsOnline">Online vs Player</button>
+    </div>
+</div>
+
+<!-- pass screen overlay (shown between player turns in PvP or during second placement) -->
+<div id="pass-overlay" class="overlay hidden">
+    <div class="overlay-content">
+        <p id="pass-text"></p>
+        <button id="btn-ready">I'm ready</button>
+    </div>
+</div>
+
+<!-- waiting for opponent overlay (online mode) -->
+<div id="waiting-overlay" class="overlay hidden">
+    <div class="overlay-content">
+        <p>Waiting for opponent...</p>
+        <button id="btn-cancel-queue">Cancel</button>
+    </div>
+</div>
+
+<!-- win/lose overlay -->
+<div id="overlay" class="hidden">
+    <div id="overlay-content">
+        <h1 id="winner-text"></h1>
+        <button id="play-again">Play Again</button>
+    </div>
+</div>
+
+<script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+<script>
+/**
+ * Battleship game implemented with vanilla JavaScript.
+ * All logic lives in this file for simplicity.
+ */
+
+ // ship definitions
+ const shipTypes = [
+    { name: 'Carrier', size: 5 },
+    { name: 'Battleship', size: 4 },
+    { name: 'Destroyer', size: 3 },
+    { name: 'Submarine', size: 3 },
+    { name: 'Patrol Boat', size: 2 }
+ ];
+
+/** 
+ * 0 = empty, 1 = ship, 2 = miss, 3 = hit
+ */
+
+// state for both players; index 0 and 1
+let grids = [null, null];
+let ships = [null, null];
+let playerGrid, enemyGrid;        // references to current player's and opponent's grids
+let playerShips, enemyShips;      // same for ship lists
+let shipToPlaceIndex;
+let orientation = 'H'; // 'H' horizontal or 'V' vertical
+let playerTurn = false;
+// PvP placement helper: which player is about to place (0 or 1) or null if none
+let placementPlayer = null;
+
+// overall game settings
+let gameState = {
+    mode: null,           // 'cpu', 'pvp', or 'online'
+    currentPlayer: 0      // 0 or 1 (only used in PvP and online)
+};
+
+// Socket.IO for online play
+let socket = null;
+let onlinePlayerIndex = null;  // 0 or 1 when in online mode
+let opponentShips = null;      // opponent's ship placements (received from opponent)
+
+/**
+ * Kick off a new game.
+ */
+function init() {
+    // show mode selection overlay first
+    showModeOverlay();
+}
+
+/**
+ * Prepare game variables for a fresh session after mode chosen.
+ * Called internally by chooseMode().
+ * @param {string} mode
+ */
+function setupNewMatch(mode) {
+    gameState.mode = mode;
+    gameState.currentPlayer = 0;
+
+    // initialize grids/ships array
+    grids[0] = createEmptyGrid();
+    grids[1] = createEmptyGrid();
+    ships[0] = [];
+    ships[1] = [];
+
+    if (mode === 'cpu') {
+        playerGrid = grids[0];
+        enemyGrid = grids[1];
+        playerShips = ships[0];
+        enemyShips = ships[1];
+        shipToPlaceIndex = 0;
+        orientation = 'H';
+        playerTurn = false;
+        aiState = { mode: 'hunt', lastHit: null, direction: null, triedDirs: [] };
+        buildGrids();
+        buildTracker();
+        placeEnemyShipsRandom();
+        updateStatus('Place your ' + shipTypes[0].name + ' (size ' + shipTypes[0].size + ')');
+    } else if (mode === 'pvp') {
+        // PvP: prepare and show overlay, placement starts after ready
+        buildGrids();
+        buildTracker();
+        placementPlayer = 0;
+        showPassOverlay('Player 1, get ready to place your ships');
+    } else if (mode === 'online') {
+        // Online mode: connect to server and wait for opponent
+        initSocket();
+        socket.emit('joinQueue');
+    }
+}
+
+/**
+ * Setup placement for given player index (0 or 1)
+ */
+function setupPlacement(playerIndex) {
+    shipToPlaceIndex = 0;
+    orientation = 'H';
+    playerGrid = grids[playerIndex];
+    playerShips = ships[playerIndex];
+    enemyGrid = null;
+    enemyShips = null;
+    renderGrid('player-grid', playerGrid, true);
+    document.getElementById('boards').style.display = 'flex';
+    // hide enemy grid during placement to avoid confusion
+    document.getElementById('enemy-grid').parentElement.style.visibility = 'hidden';
+    updateStatus('Player ' + (playerIndex + 1) + ', place your ' + shipTypes[shipToPlaceIndex].name + ' (size ' + shipTypes[shipToPlaceIndex].size + ')');
+}
+
+/**
+ * Called after both players have placed ships; begins actual play
+ */
+function startPvPMatch() {
+    // expose both boards and set references to current player
+    document.getElementById('enemy-grid').parentElement.style.visibility = 'visible';
+    gameState.currentPlayer = 0;
+    playerGrid = grids[0];
+    enemyGrid = grids[1];
+    playerShips = ships[0];
+    enemyShips = ships[1];
+    playerTurn = true;
+    renderGrid('player-grid', playerGrid, true);
+    renderGrid('enemy-grid', enemyGrid, false);
+    buildTracker();
+    updateStatus('Player 1, your turn');
+}
+
+
+/**
+ * Create a 10x10 grid filled with 0's.
+ * @returns {Array<Array<number>>}
+ */
+function createEmptyGrid() {
+    return Array.from({ length: 10 }, () => Array(10).fill(0));
+}
+
+/**
+ * Build both player and enemy grid tables.
+ */
+function buildGrids() {
+    buildGrid('player-grid', true);
+    buildGrid('enemy-grid', false);
+}
+
+/**
+ * Build a single grid table.
+ * @param {string} id element id
+ * @param {boolean} isPlayer whether this is the player's grid
+ */
+function buildGrid(id, isPlayer) {
+    const table = document.getElementById(id);
+    table.innerHTML = '';
+    const headerRow = document.createElement('tr');
+    headerRow.appendChild(document.createElement('th')); // top-left blank
+    for (let c = 1; c <= 10; c++) {
+        const th = document.createElement('th');
+        th.textContent = c;
+        headerRow.appendChild(th);
+    }
+    table.appendChild(headerRow);
+
+    for (let r = 0; r < 10; r++) {
+        const tr = document.createElement('tr');
+        const th = document.createElement('th');
+        th.textContent = String.fromCharCode(65 + r);
+        tr.appendChild(th);
+        for (let c = 0; c < 10; c++) {
+            const td = document.createElement('td');
+            td.classList.add('cell');
+            td.dataset.row = r;
+            td.dataset.col = c;
+            if (isPlayer) {
+                td.addEventListener('click', onPlayerGridClick);
+            } else {
+                td.addEventListener('click', onEnemyGridClick);
+            }
+            tr.appendChild(td);
+        }
+        table.appendChild(tr);
+    }
+    renderGrid(id, isPlayer ? playerGrid : enemyGrid, isPlayer);
+}
+
+/**
+ * Render the grid state into the DOM.
+ * @param {string} id
+ * @param {Array<Array<number>>} grid
+ * @param {boolean} isPlayer
+ */
+function renderGrid(id, grid, isPlayer) {
+    if (!grid) return; // nothing to render yet
+    const table = document.getElementById(id);
+    for (let r = 0; r < 10; r++) {
+        const row = table.rows[r + 1]; // +1 for header
+        for (let c = 0; c < 10; c++) {
+            const cell = row.cells[c + 1];
+            cell.classList.remove('ship', 'hit', 'miss');
+            cell.textContent = '';
+            if (grid[r][c] === 1 && isPlayer) {
+                cell.classList.add('ship');
+            } else if (grid[r][c] === 3) {
+                cell.classList.add('hit');
+                cell.textContent = '✖';
+            } else if (grid[r][c] === 2) {
+                cell.classList.add('miss');
+                cell.textContent = '•';
+            }
+        }
+    }
+}
+
+/**
+ * Clicking on player's grid during placement.
+ * @param {MouseEvent} evt
+ */
+function onPlayerGridClick(evt) {
+    if (shipToPlaceIndex >= shipTypes.length) return;
+    const row = +evt.currentTarget.dataset.row;
+    const col = +evt.currentTarget.dataset.col;
+    const shipDef = shipTypes[shipToPlaceIndex];
+    if (canPlaceShip(playerGrid, row, col, shipDef.size, orientation)) {
+        placeShip(playerGrid, playerShips, row, col, shipDef, orientation);
+        renderGrid('player-grid', playerGrid, true);
+        updateTracker();
+        shipToPlaceIndex++;
+        if (shipToPlaceIndex < shipTypes.length) {
+            const next = shipTypes[shipToPlaceIndex];
+            updateStatus('Place your ' + next.name + ' (size ' + next.size + ')');
+        } else {
+            // all ships placed
+            if (gameState.mode === 'cpu') {
+                // CPU mode: player can now shoot
+                playerTurn = true;
+                updateStatus('All ships placed. Your turn!');
+            } else if (gameState.mode === 'pvp') {
+                // PvP mode: check which player just finished
+                if (playerGrid === grids[0]) {
+                    // Player 1 finished; prepare for Player 2
+                    placementPlayer = 1;
+                    showPassOverlay('Player 1 finished placement. Pass to Player 2 and press ready.');
+                } else {
+                    // Player 2 finished; start match
+                    startPvPMatch();
+                }
+            } else if (gameState.mode === 'online') {
+                // Online mode: send ships to opponent
+                updateStatus('Ships placed! Waiting for opponent...');
+                socket.emit('placedShips', { ships: playerShips });
+            }
+        }
+    }
+}
+
+/**
+ * Clicking on enemy grid to fire.
+ * @param {MouseEvent} evt
+ */
+function onEnemyGridClick(evt) {
+    if (!playerTurn) return;
+    const row = +evt.currentTarget.dataset.row;
+    const col = +evt.currentTarget.dataset.col;
+    if (enemyGrid[row][col] === 2 || enemyGrid[row][col] === 3) return;
+    
+    if (gameState.mode === 'online') {
+        // Online mode: send shot to opponent
+        playerTurn = false;
+        socket.emit('shot', { row: row, col: col });
+        updateStatus('Waiting for opponent...');
+    } else {
+        // Local/CPU modes
+        const hit = fireAt(enemyGrid, enemyShips, row, col);
+        renderGrid('enemy-grid', enemyGrid, false);
+        updateTracker();
+        if (checkWin(enemyShips)) {
+            showOverlay('Player ' + (gameState.mode === 'pvp' ? (gameState.currentPlayer + 1) : '1') + ' wins!');
+            return;
+        }
+
+        if (gameState.mode === 'cpu') {
+            if (!hit) {
+                playerTurn = false;
+                updateStatus('CPU turn...');
+                setTimeout(aiMove, 500);
+            } else {
+                updateStatus('Hit! Shoot again.');
+            }
+        } else {
+            // PvP logic
+            if (!hit) {
+                playerTurn = false;
+                showPassOverlay('Pass to Player ' + ((gameState.currentPlayer === 0) ? '2' : '1'));
+            } else {
+                updateStatus('Hit! Shoot again.');
+            }
+        }
+    }
+}
+
+/**
+ * Check if a ship of given size can be placed at row,col with orientation.
+ * Does not modify grid.
+ * @param {Array<Array<number>>} grid
+ * @param {number} row
+ * @param {number} col
+ * @param {number} size
+ * @param {string} orient 'H' or 'V'
+ * @returns {boolean}
+ */
+function canPlaceShip(grid, row, col, size, orient) {
+    if (orient === 'H') {
+        if (col + size > 10) return false;
+        for (let c = col; c < col + size; c++)
+            if (grid[row][c] !== 0) return false;
+    } else {
+        if (row + size > 10) return false;
+        for (let r = row; r < row + size; r++)
+            if (grid[r][col] !== 0) return false;
+    }
+    return true;
+}
+
+/**
+ * Place ship on grid and record coordinates in ship list.
+ * @param {Array<Array<number>>} grid
+ * @param {Array<Object>} ships
+ * @param {number} row
+ * @param {number} col
+ * @param {Object} shipDef
+ * @param {string} orient
+ */
+function placeShip(grid, ships, row, col, shipDef, orient) {
+    const ship = {
+        name: shipDef.name,
+        size: shipDef.size,
+        cells: [],
+        sunk: false
+    };
+    if (orient === 'H') {
+        for (let c = col; c < col + ship.size; c++) {
+            grid[row][c] = 1;
+            ship.cells.push({ r: row, c: c, hit: false });
+        }
+    } else {
+        for (let r = row; r < row + ship.size; r++) {
+            grid[r][col] = 1;
+            ship.cells.push({ r: r, c: col, hit: false });
+        }
+    }
+    ships.push(ship);
+}
+
+/**
+ * Fire at the specified coordinate on the grid.
+ * @param {Array<Array<number>>} grid
+ * @param {Array<Object>} ships
+ * @param {number} row
+ * @param {number} col
+ * @returns {boolean} true if hit
+ */
+function fireAt(grid, ships, row, col) {
+    if (grid[row][col] === 1) {
+        grid[row][col] = 3;
+        markShipHit(ships, row, col);
+        animateCell((grid === enemyGrid ? 'enemy-grid' : 'player-grid'), row, col, 'hit');
+        return true;
+    } else {
+        grid[row][col] = 2;
+        animateCell((grid === enemyGrid ? 'enemy-grid' : 'player-grid'), row, col, 'miss');
+        return false;
+    }
+}
+
+/**
+ * Mark the ship that occupies the given cell as hit and check for sinking.
+ * @param {Array<Object>} ships
+ * @param {number} row
+ * @param {number} col
+ */
+function markShipHit(ships, row, col) {
+    for (let ship of ships) {
+        for (let cell of ship.cells) {
+            if (cell.r === row && cell.c === col) {
+                cell.hit = true;
+                if (ship.cells.every(c => c.hit)) {
+                    ship.sunk = true;
+                    updateTracker();
+                    if (ships === enemyShips) {
+                        // enemy ship sunk
+                    } else {
+                        // player ship sunk
+                    }
+                    // if CPU was targeting this ship, reset to hunt
+                    aiState.mode = 'hunt';
+                    aiState.direction = null;
+                    aiState.lastHit = null;
+                    aiState.triedDirs = [];
+                }
+                return;
+            }
+        }
+    }
+}
+
+/**
+ * Initialize the ship tracker UI with all ship types.
+ */
+function buildTracker() {
+    const ul = document.getElementById('ship-tracker');
+    ul.innerHTML = '';
+    for (let def of shipTypes) {
+        const li = document.createElement('li');
+        li.textContent = def.name;
+        li.style.opacity = '0.5'; // dimmed until placed
+        ul.appendChild(li);
+    }
+}
+
+/**
+ * Update the sidebar ship tracker with sunk styles.
+ */
+function updateTracker() {
+    const ul = document.getElementById('ship-tracker');
+    ul.innerHTML = '';
+    // always show every ship type; strike-through if sunk, dim if not yet placed
+    for (let def of shipTypes) {
+        const li = document.createElement('li');
+        li.textContent = def.name;
+        const ps = playerShips.find(s => s.name === def.name);
+        if (ps) {
+            if (ps.sunk) {
+                li.classList.add('sunk');
+            }
+        } else {
+            li.style.opacity = '0.5';
+        }
+        ul.appendChild(li);
+    }
+}
+
+/**
+ * Check whether all ships in the list are sunk.
+ * @param {Array<Object>} ships
+ * @returns {boolean}
+ */
+function checkWin(ships) {
+    return ships.length > 0 && ships.every(s => s.sunk);
+}
+
+/**
+ * Pick a random untargeted cell for hunting.
+ * @returns {[number,number]}
+ */
+function randomUntargetedCell() {
+    const candidates = [];
+    for (let r = 0; r < 10; r++) {
+        for (let c = 0; c < 10; c++) {
+            if (playerGrid[r][c] === 0 || playerGrid[r][c] === 1) {
+                candidates.push([r, c]);
+            }
+        }
+    }
+    return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+/**
+ * Show the mode selection overlay
+ */
+function showModeOverlay() {
+    document.getElementById('mode-overlay').classList.remove('hidden');
+}
+
+/**
+ * User selects a mode: 'cpu' or 'pvp'
+ * @param {string} mode
+ */
+function chooseMode(mode) {
+    document.getElementById('mode-overlay').classList.add('hidden');
+    setupNewMatch(mode);
+}
+
+/**
+ * Display the pass-to-opponent overlay with custom text
+ * @param {string} text
+ */
+function showPassOverlay(text) {
+    document.getElementById('pass-text').textContent = text;
+    document.getElementById('pass-overlay').classList.remove('hidden');
+}
+
+/**
+ * Hide the pass overlay and continue play
+ */
+function hidePassOverlay() {
+    document.getElementById('pass-overlay').classList.add('hidden');
+    // if we were in PvP and we just finished placement for player1
+}
+
+/**
+ * Compute adjacent cell given a direction string.
+ * @param {number} r
+ * @param {number} c
+ * @param {string} dir
+ * @returns {{r:number,c:number}|null}
+ */
+function adjacent(r, c, dir) {
+    switch (dir) {
+        case 'up': return r > 0 ? {r: r-1, c} : null;
+        case 'down': return r < 9 ? {r: r+1, c} : null;
+        case 'left': return c > 0 ? {r, c: c-1} : null;
+        case 'right': return c < 9 ? {r, c: c+1} : null;
+    }
+    return null;
+}
+
+/**
+ * AI makes its move following hunt/target logic.
+ */
+function aiMove() {
+    if (checkWin(playerShips)) return;
+    if (aiState.mode === 'hunt') {
+        const [r, c] = randomUntargetedCell();
+        const hit = fireAt(playerGrid, playerShips, r, c);
+        renderGrid('player-grid', playerGrid, true);
+        updateTracker();
+        if (checkWin(playerShips)) {
+            showOverlay('CPU wins!');
+            return;
+        }
+        if (hit) {
+            aiState.mode = 'target';
+            aiState.lastHit = {r, c};
+            aiState.direction = null;
+            aiState.triedDirs = [];
+            updateStatus('CPU hit your ship!');
+            setTimeout(aiMove, 500);
+        } else {
+            playerTurn = true;
+            updateStatus('Your turn');
+        }
+    } else if (aiState.mode === 'target') {
+        let base = aiState.lastHit;
+        if (!aiState.direction) {
+            const dirs = ['up','down','left','right'].filter(d => !aiState.triedDirs.includes(d));
+            if (dirs.length === 0) {
+                aiState.mode = 'hunt';
+                aiState.lastHit = null;
+                aiState.triedDirs = [];
+                aiMove();
+                return;
+            }
+            const d = dirs[Math.floor(Math.random()*dirs.length)];
+            aiState.triedDirs.push(d);
+            const next = adjacent(base.r, base.c, d);
+            if (!next || playerGrid[next.r][next.c] === 2 || playerGrid[next.r][next.c] === 3) {
+                aiMove();
+                return;
+            }
+            const hit = fireAt(playerGrid, playerShips, next.r, next.c);
+            renderGrid('player-grid', playerGrid, true);
+            updateTracker();
+            if (checkWin(playerShips)) { showOverlay('CPU wins!'); return; }
+            if (hit) {
+                aiState.direction = d;
+                aiState.lastHit = {r: next.r, c: next.c};
+                updateStatus('CPU hit your ship!');
+                setTimeout(aiMove, 500);
+            } else {
+                updateStatus('CPU missed.');
+                aiMove();
+            }
+        } else {
+            const next = adjacent(aiState.lastHit.r, aiState.lastHit.c, aiState.direction);
+            if (!next || playerGrid[next.r][next.c] === 2 || playerGrid[next.r][next.c] === 3) {
+                aiState.direction = null;
+                aiMove();
+                return;
+            }
+            const hit = fireAt(playerGrid, playerShips, next.r, next.c);
+            renderGrid('player-grid', playerGrid, true);
+            updateTracker();
+            if (checkWin(playerShips)) { showOverlay('CPU wins!'); return; }
+            if (hit) {
+                aiState.lastHit = {r: next.r, c: next.c};
+                updateStatus('CPU hit your ship!');
+                setTimeout(aiMove, 500);
+            } else {
+                aiState.direction = null;
+                aiMove();
+            }
+        }
+    }
+}
+
+/**
+ * Randomly place enemy ships at game start.
+ */
+function placeEnemyShipsRandom() {
+    for (let def of shipTypes) {
+        let placed = false;
+        while (!placed) {
+            const orient = Math.random() < 0.5 ? 'H' : 'V';
+            const row = Math.floor(Math.random()*10);
+            const col = Math.floor(Math.random()*10);
+            if (canPlaceShip(enemyGrid, row, col, def.size, orient)) {
+                placeShip(enemyGrid, enemyShips, row, col, def, orient);
+                placed = true;
+            }
+        }
+    }
+}
+
+/**
+ * Update status message text.
+ * @param {string} txt
+ */
+function updateStatus(txt) {
+    document.getElementById('status').textContent = txt;
+}
+
+/**
+ * Animate a cell with hit or miss effect.
+ * @param {string} gridId
+ * @param {number} r
+ * @param {number} c
+ * @param {string} type 'hit' or 'miss'
+ */
+function animateCell(gridId, r, c, type) {
+    const table = document.getElementById(gridId);
+    const row = table.rows[r + 1];
+    const cell = row.cells[c + 1];
+    cell.classList.add(type);
+    cell.addEventListener('animationend', () => cell.classList.remove(type), { once:true });
+}
+
+/**
+ * Show the win/lose overlay.
+ * @param {string} text
+ */
+function showOverlay(text) {
+    document.getElementById('winner-text').textContent = text;
+    document.getElementById('overlay').classList.remove('hidden');
+}
+
+/**
+ * Reset everything and start a new game.
+ */
+function resetGame() {
+    document.getElementById('overlay').classList.add('hidden');
+    init();
+}
+
+/**
+ * Toggle orientation between horizontal and vertical.
+ */
+function toggleOrientation() {
+    orientation = orientation === 'H' ? 'V' : 'H';
+    document.getElementById('rotate-button').textContent = 'Rotate (' + orientation + ')';
+}
+
+/**
+ * Initialize Socket.IO for online play
+ */
+function initSocket() {
+    socket = io();
+    
+    socket.on('waiting', function(data) {
+        console.log('Waiting for opponent...');
+        document.getElementById('waiting-overlay').classList.remove('hidden');
+        updateStatus('Waiting for opponent to join...');
+    });
+    
+    socket.on('opponentJoined', function(data) {
+        console.log('Opponent joined! You are player ' + data.playerIndex);
+        document.getElementById('waiting-overlay').classList.add('hidden');
+        onlinePlayerIndex = data.playerIndex;
+        gameState.currentPlayer = 0;
+        
+        playerGrid = grids[onlinePlayerIndex];
+        playerShips = ships[onlinePlayerIndex];
+        shipToPlaceIndex = 0;
+        orientation = 'H';
+        buildGrids();
+        buildTracker();
+        updateStatus('Place your ships. Player ' + (onlinePlayerIndex + 1));
+    });
+    
+    socket.on('startGame', function(data) {
+        console.log('Game started!');
+        enemyGrid = grids[1 - onlinePlayerIndex];
+        enemyShips = ships[1 - onlinePlayerIndex];
+        playerTurn = (onlinePlayerIndex === 0);
+        updateStatus(playerTurn ? 'Your turn!' : 'Waiting for opponent...');
+    });
+    
+    socket.on('opponentShot', function(data) {
+        console.log('Opponent shot at ' + data.row + ',' + data.col);
+        if (playerGrid[data.row][data.col] !== 2 && playerGrid[data.row][data.col] !== 3) {
+            const hit = fireAt(playerGrid, playerShips, data.row, data.col);
+            renderGrid('player-grid', playerGrid, true);
+            updateTracker();
+            
+            const shipHit = getShipAt(playerShips, data.row, data.col);
+            const sunk = shipHit ? playerShips.find(s => s.name === shipHit).sunk : false;
+            const gameOver = checkWin(playerShips);
+            
+            socket.emit('shotResult', {
+                hit: hit,
+                sunk: sunk,
+                gameOver: gameOver,
+                winner: gameOver ? (1 - onlinePlayerIndex) : null
+            });
+            
+            if (!gameOver) {
+                playerTurn = true;
+                updateStatus('Your turn!');
+            } else {
+                showOverlay('Player ' + (1 - onlinePlayerIndex + 1) + ' wins!');
+            }
+        }
+    });
+    
+    socket.on('shotResult', function(data) {
+        console.log('Shot result: hit=' + data.hit);
+        if (data.gameOver) {
+            showOverlay('You win!');
+        } else {
+            playerTurn = false;
+            updateStatus("Opponent's turn...");
+        }
+    });
+    
+    socket.on('opponentDisconnected', function(data) {
+        updateStatus('Opponent disconnected.');
+    });
+}
+
+/**
+ * Get ship name at a specific coordinate
+ */
+function getShipAt(shipList, row, col) {
+    for (let ship of shipList) {
+        if (ship.cells.some(c => c.r === row && c.c === col)) {
+            return ship.name;
+        }
+    }
+    return null;
+}
+
+window.addEventListener('load', () => {
+    // Initialize game
+    init();
+    
+    // Attach all button event listeners
+    document.getElementById('btn-vsCPU').addEventListener('click', () => chooseMode('cpu'));
+    document.getElementById('btn-vsPlayer').addEventListener('click', () => chooseMode('pvp'));
+    document.getElementById('btn-vsOnline').addEventListener('click', () => chooseMode('online'));
+    
+    document.getElementById('btn-cancel-queue').addEventListener('click', () => {
+        document.getElementById('waiting-overlay').classList.add('hidden');
+        document.getElementById('mode-overlay').classList.remove('hidden');
+        if (socket) socket.disconnect();
+        init();
+    });
+    
+    document.getElementById('btn-ready').addEventListener('click', () => {
+        document.getElementById('pass-overlay').classList.add('hidden');
+        if (gameState.mode !== 'pvp') return;
+
+        if (placementPlayer !== null) {
+            setupPlacement(placementPlayer);
+            placementPlayer = null;
+            return;
+        }
+
+        if (enemyGrid !== null && playerTurn === false) {
+            gameState.currentPlayer = 1 - gameState.currentPlayer;
+            playerGrid = grids[gameState.currentPlayer];
+            enemyGrid = grids[1 - gameState.currentPlayer];
+            playerShips = ships[gameState.currentPlayer];
+            enemyShips = ships[1 - gameState.currentPlayer];
+            playerTurn = true;
+            updateStatus('Player ' + (gameState.currentPlayer + 1) + ', your turn');
+            renderGrid('player-grid', playerGrid, true);
+            renderGrid('enemy-grid', enemyGrid, false);
+            updateTracker();
+        }
+    });
+    
+    document.getElementById('rotate-button').addEventListener('click', toggleOrientation);
+    document.getElementById('play-again').addEventListener('click', resetGame);
+});
+
+</script>
 </body>
 </html>

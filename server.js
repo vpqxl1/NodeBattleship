@@ -2,185 +2,174 @@ var express = require('express');
 var app = express();
 var http = require('http').Server(app);
 var io = require('socket.io')(http);
-var Entities = require('html-entities').AllHtmlEntities;
-var entities = new Entities();
 
-var BattleshipGame = require('./app/game.js');
-var GameStatus = require('./app/gameStatus.js');
+var port = process.env.PORT || 8900;
 
-var port = 8900;
+// Track waiting players and active games
+var waitingPlayers = [];
+var activeGames = {};
+var playerToGame = {}; // maps socket.id to game ID
 
-var users = {};
-var gameIdCounter = 1;
-
-app.use(express.static(__dirname + '/public'));
+// serve static files with no caching (development convenience)
+app.use(express.static(__dirname + '/public', { maxAge: 0 }));
 
 http.listen(port, function(){
-  console.log('listening on *:' + port);
+  console.log('Battleship server listening on *:' + port);
 });
 
 io.on('connection', function(socket) {
-  console.log((new Date().toISOString()) + ' ID ' + socket.id + ' connected.');
-
-  // create user object for additional data
-  users[socket.id] = {
-    inGame: null,
-    player: null
-  }; 
-
-  // join waiting room until there are enough players to start a new game
-  socket.join('waiting room');
+  console.log('[' + new Date().toISOString() + '] Player connected: ' + socket.id);
 
   /**
-   * Handle chat messages
+   * Player joins the matchmaking queue
    */
-  socket.on('chat', function(msg) {
-    if(users[socket.id].inGame !== null && msg) {
-      console.log((new Date().toISOString()) + ' Chat message from ' + socket.id + ': ' + msg);
-      
-      // Send message to opponent
-      socket.broadcast.to('game' + users[socket.id].inGame.id).emit('chat', {
-        name: 'Opponent',
-        message: entities.encode(msg),
-      });
+  socket.on('joinQueue', function() {
+    waitingPlayers.push(socket.id);
+    socket.emit('waiting', { message: 'Waiting for opponent...' });
+    console.log('[' + new Date().toISOString() + '] ' + socket.id + ' joined queue. Queue size: ' + waitingPlayers.length);
+    
+    // If we have 2 players, start a game
+    if (waitingPlayers.length >= 2) {
+      startGame(waitingPlayers.shift(), waitingPlayers.shift());
+    }
+  });
 
-      // Send message to self
-      io.to(socket.id).emit('chat', {
-        name: 'Me',
-        message: entities.encode(msg),
-      });
+  /**
+   * Handle ship placement from client
+   */
+  socket.on('placedShips', function(data) {
+    var gameId = playerToGame[socket.id];
+    if (!gameId || !activeGames[gameId]) return;
+    
+    var game = activeGames[gameId];
+    var playerIndex = (game.player1 === socket.id) ? 0 : 1;
+    game.shipsPlaced[playerIndex] = data;
+    
+    console.log('[' + new Date().toISOString() + '] Player ' + playerIndex + ' placed ships in game ' + gameId);
+    
+    // If both players have placed ships, start the game
+    if (game.shipsPlaced[0] && game.shipsPlaced[1]) {
+      io.to(game.gameRoom).emit('startGame', { player1Starts: true });
+      game.gameStarted = true;
+      game.currentPlayer = 0;
     }
   });
 
   /**
    * Handle shot from client
    */
-  socket.on('shot', function(position) {
-    var game = users[socket.id].inGame, opponent;
-
-    if(game !== null) {
-      // Is it this users turn?
-      if(game.currentPlayer === users[socket.id].player) {
-        opponent = game.currentPlayer === 0 ? 1 : 0;
-
-        if(game.shoot(position)) {
-          // Valid shot
-          checkGameOver(game);
-
-          // Update game state on both clients.
-          io.to(socket.id).emit('update', game.getGameState(users[socket.id].player, opponent));
-          io.to(game.getPlayerId(opponent)).emit('update', game.getGameState(opponent, opponent));
-        }
-      }
-    }
+  socket.on('shot', function(data) {
+    var gameId = playerToGame[socket.id];
+    if (!gameId || !activeGames[gameId]) return;
+    
+    var game = activeGames[gameId];
+    var shooterIndex = (game.player1 === socket.id) ? 0 : 1;
+    var opponentIndex = 1 - shooterIndex;
+    var opponentId = shooterIndex === 0 ? game.player2 : game.player1;
+    
+    // Send shot to opponent
+    io.to(opponentId).emit('opponentShot', {
+      row: data.row,
+      col: data.col
+    });
+    
+    console.log('[' + new Date().toISOString() + '] Player ' + shooterIndex + ' shot (' + data.row + ',' + data.col + ') in game ' + gameId);
   });
-  
+
   /**
-   * Handle leave game request
+   * Handle shot result from opponent
    */
-  socket.on('leave', function() {
-    if(users[socket.id].inGame !== null) {
-      leaveGame(socket);
-
-      socket.join('waiting room');
-      joinWaitingPlayers();
+  socket.on('shotResult', function(data) {
+    var gameId = playerToGame[socket.id];
+    if (!gameId || !activeGames[gameId]) return;
+    
+    var game = activeGames[gameId];
+    var defenderIndex = (game.player1 === socket.id) ? 0 : 1;
+    var attackerIndex = 1 - defenderIndex;
+    var attackerId = defenderIndex === 0 ? game.player2 : game.player1;
+    
+    // Switch turn and send result to attacker
+    game.currentPlayer = attackerIndex;
+    io.to(attackerId).emit('shotResult', {
+      hit: data.hit,
+      sunk: data.sunk,
+      gameOver: data.gameOver,
+      winner: data.winner
+    });
+    
+    if (data.gameOver) {
+      endGame(gameId);
     }
   });
 
   /**
-   * Handle client disconnect
+   * Handle player disconnect
    */
   socket.on('disconnect', function() {
-    console.log((new Date().toISOString()) + ' ID ' + socket.id + ' disconnected.');
+    console.log('[' + new Date().toISOString() + '] Player disconnected: ' + socket.id);
     
-    leaveGame(socket);
-
-    delete users[socket.id];
+    // Remove from waiting queue
+    var waitIndex = waitingPlayers.indexOf(socket.id);
+    if (waitIndex > -1) {
+      waitingPlayers.splice(waitIndex, 1);
+    }
+    
+    // Notify opponent if in game
+    var gameId = playerToGame[socket.id];
+    if (gameId && activeGames[gameId]) {
+      var game = activeGames[gameId];
+      var opponentId = game.player1 === socket.id ? game.player2 : game.player1;
+      io.to(opponentId).emit('opponentDisconnected', { message: 'Opponent left the game' });
+      endGame(gameId);
+    }
+    
+    delete playerToGame[socket.id];
   });
-
-  joinWaitingPlayers();
 });
 
 /**
- * Create games for players in waiting room
+ * Start a new game with two players
  */
-function joinWaitingPlayers() {
-  var players = getClientsInRoom('waiting room');
+function startGame(player1Id, player2Id) {
+  var gameId = 'game_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+  var gameRoom = 'game_' + gameId;
   
-  if(players.length >= 2) {
-    // 2 player waiting. Create new game!
-    var game = new BattleshipGame(gameIdCounter++, players[0].id, players[1].id);
-
-    // create new room for this game
-    players[0].leave('waiting room');
-    players[1].leave('waiting room');
-    players[0].join('game' + game.id);
-    players[1].join('game' + game.id);
-
-    users[players[0].id].player = 0;
-    users[players[1].id].player = 1;
-    users[players[0].id].inGame = game;
-    users[players[1].id].inGame = game;
-    
-    io.to('game' + game.id).emit('join', game.id);
-
-    // send initial ship placements
-    io.to(players[0].id).emit('update', game.getGameState(0, 0));
-    io.to(players[1].id).emit('update', game.getGameState(1, 1));
-
-    console.log((new Date().toISOString()) + " " + players[0].id + " and " + players[1].id + " have joined game ID " + game.id);
-  }
+  activeGames[gameId] = {
+    gameId: gameId,
+    player1: player1Id,
+    player2: player2Id,
+    gameRoom: gameRoom,
+    shipsPlaced: [null, null],
+    gameStarted: false,
+    currentPlayer: null
+  };
+  
+  playerToGame[player1Id] = gameId;
+  playerToGame[player2Id] = gameId;
+  
+  // in Socket.IO v4, sockets are stored in a Map
+  var socket1 = io.sockets.sockets.get(player1Id);
+  var socket2 = io.sockets.sockets.get(player2Id);
+  
+  if (socket1) socket1.join(gameRoom);
+  if (socket2) socket2.join(gameRoom);
+  
+  // notify each player that opponent joined
+  io.to(player1Id).emit('opponentJoined', { playerIndex: 0, gameId: gameId });
+  io.to(player2Id).emit('opponentJoined', { playerIndex: 1, gameId: gameId });
+  
+  console.log('[' + new Date().toISOString() + '] Game started: ' + gameId + ' (' + player1Id + ' vs ' + player2Id + ')');
 }
 
 /**
- * Leave user's game
- * @param {type} socket
+ * End a game
  */
-function leaveGame(socket) {
-  if(users[socket.id].inGame !== null) {
-    console.log((new Date().toISOString()) + ' ID ' + socket.id + ' left game ID ' + users[socket.id].inGame.id);
-
-    // Notifty opponent
-    socket.broadcast.to('game' + users[socket.id].inGame.id).emit('notification', {
-      message: 'Opponent has left the game'
-    });
-
-    if(users[socket.id].inGame.gameStatus !== GameStatus.gameOver) {
-      // Game is unfinished, abort it.
-      users[socket.id].inGame.abortGame(users[socket.id].player);
-      checkGameOver(users[socket.id].inGame);
-    }
-
-    socket.leave('game' + users[socket.id].inGame.id);
-
-    users[socket.id].inGame = null;
-    users[socket.id].player = null;
-
-    io.to(socket.id).emit('leave');
+function endGame(gameId) {
+  if (activeGames[gameId]) {
+    var game = activeGames[gameId];
+    delete playerToGame[game.player1];
+    delete playerToGame[game.player2];
+    delete activeGames[gameId];
+    console.log('[' + new Date().toISOString() + '] Game ended: ' + gameId);
   }
-}
-
-/**
- * Notify players if game over.
- * @param {type} game
- */
-function checkGameOver(game) {
-  if(game.gameStatus === GameStatus.gameOver) {
-    console.log((new Date().toISOString()) + ' Game ID ' + game.id + ' ended.');
-    io.to(game.getWinnerId()).emit('gameover', true);
-    io.to(game.getLoserId()).emit('gameover', false);
-  }
-}
-
-/**
- * Find all sockets in a room
- * @param {type} room
- * @returns {Array}
- */
-function getClientsInRoom(room) {
-  var clients = [];
-  for (var id in io.sockets.adapter.rooms[room]) {
-    clients.push(io.sockets.adapter.nsp.connected[id]);
-  }
-  return clients;
 }
