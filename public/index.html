@@ -156,10 +156,14 @@ let socket = null;
 let onlinePlayerIndex = null;  // 0 or 1 when in online mode
 let opponentShips = null;      // opponent's ship placements (received from opponent)
 
+// AI state for CPU opponent
+let aiState = null;
+
 /**
  * Kick off a new game.
  */
 function init() {
+    console.log('init() called');
     // show mode selection overlay first
     showModeOverlay();
 }
@@ -170,6 +174,7 @@ function init() {
  * @param {string} mode
  */
 function setupNewMatch(mode) {
+    console.log('setupNewMatch called with mode:', mode);
     gameState.mode = mode;
     gameState.currentPlayer = 0;
 
@@ -180,6 +185,7 @@ function setupNewMatch(mode) {
     ships[1] = [];
 
     if (mode === 'cpu') {
+        console.log('Setting up CPU mode');
         playerGrid = grids[0];
         enemyGrid = grids[1];
         playerShips = ships[0];
@@ -193,15 +199,18 @@ function setupNewMatch(mode) {
         placeEnemyShipsRandom();
         updateStatus('Place your ' + shipTypes[0].name + ' (size ' + shipTypes[0].size + ')');
     } else if (mode === 'pvp') {
+        console.log('Setting up PvP mode');
         // PvP: prepare and show overlay, placement starts after ready
         buildGrids();
         buildTracker();
         placementPlayer = 0;
         showPassOverlay('Player 1, get ready to place your ships');
     } else if (mode === 'online') {
+        console.log('Setting up Online mode');
         // Online mode: connect to server and wait for opponent
         initSocket();
         socket.emit('joinQueue');
+        console.log('joinQueue emitted');
     }
 }
 
@@ -505,10 +514,12 @@ function markShipHit(ships, row, col) {
                         // player ship sunk
                     }
                     // if CPU was targeting this ship, reset to hunt
-                    aiState.mode = 'hunt';
-                    aiState.direction = null;
-                    aiState.lastHit = null;
-                    aiState.triedDirs = [];
+                    if (aiState) {
+                        aiState.mode = 'hunt';
+                        aiState.direction = null;
+                        aiState.lastHit = null;
+                        aiState.triedDirs = [];
+                    }
                 }
                 return;
             }
@@ -574,6 +585,10 @@ function randomUntargetedCell() {
             }
         }
     }
+    if (candidates.length === 0) {
+        console.warn('No untargeted cells available');
+        return [0, 0];  // Fallback (shouldn't happen in normal gameplay)
+    }
     return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
@@ -581,6 +596,7 @@ function randomUntargetedCell() {
  * Show the mode selection overlay
  */
 function showModeOverlay() {
+    document.getElementById('overlay').classList.add('hidden');
     document.getElementById('mode-overlay').classList.remove('hidden');
 }
 
@@ -776,7 +792,7 @@ function toggleOrientation() {
  * Initialize Socket.IO for online play
  */
 function initSocket() {
-    socket = io();
+    // Socket already created at page load, just setup handlers here
     
     socket.on('waiting', function(data) {
         console.log('Waiting for opponent...');
@@ -862,47 +878,102 @@ function getShipAt(shipList, row, col) {
 }
 
 window.addEventListener('load', () => {
-    // Initialize game
-    init();
+    console.log('Page loaded, initializing game...');
     
-    // Attach all button event listeners
-    document.getElementById('btn-vsCPU').addEventListener('click', () => chooseMode('cpu'));
-    document.getElementById('btn-vsPlayer').addEventListener('click', () => chooseMode('pvp'));
-    document.getElementById('btn-vsOnline').addEventListener('click', () => chooseMode('online'));
-    
-    document.getElementById('btn-cancel-queue').addEventListener('click', () => {
-        document.getElementById('waiting-overlay').classList.add('hidden');
-        document.getElementById('mode-overlay').classList.remove('hidden');
-        if (socket) socket.disconnect();
+    try {
+        // Initialize socket early (but don't connect yet)
+        socket = io();
+        console.log('Socket.IO instance created');
+        
+        socket.on('connect', () => {
+            console.log('Socket connected');
+        });
+        
+        socket.on('connect_error', (error) => {
+            console.error('Socket connection error:', error);
+        });
+        
+        socket.on('disconnect', (reason) => {
+            console.log('Socket disconnected:', reason);
+        });
+        
+        // Initialize game
         init();
-    });
-    
-    document.getElementById('btn-ready').addEventListener('click', () => {
-        document.getElementById('pass-overlay').classList.add('hidden');
-        if (gameState.mode !== 'pvp') return;
-
-        if (placementPlayer !== null) {
-            setupPlacement(placementPlayer);
-            placementPlayer = null;
-            return;
+        console.log('Game initialized');
+        
+        // Attach all button event listeners
+        const btnVsCPU = document.getElementById('btn-vsCPU');
+        if (btnVsCPU) {
+            btnVsCPU.addEventListener('click', () => {
+                console.log('CPU mode selected');
+                chooseMode('cpu');
+            });
+            console.log('btn-vsCPU listener attached');
+        } else {
+            console.warn('btn-vsCPU button not found');
         }
-
-        if (enemyGrid !== null && playerTurn === false) {
-            gameState.currentPlayer = 1 - gameState.currentPlayer;
-            playerGrid = grids[gameState.currentPlayer];
-            enemyGrid = grids[1 - gameState.currentPlayer];
-            playerShips = ships[gameState.currentPlayer];
-            enemyShips = ships[1 - gameState.currentPlayer];
-            playerTurn = true;
-            updateStatus('Player ' + (gameState.currentPlayer + 1) + ', your turn');
-            renderGrid('player-grid', playerGrid, true);
-            renderGrid('enemy-grid', enemyGrid, false);
-            updateTracker();
+        
+        const btnVsPlayer = document.getElementById('btn-vsPlayer');
+        if (btnVsPlayer) {
+            btnVsPlayer.addEventListener('click', () => {
+                console.log('PvP mode selected');
+                chooseMode('pvp');
+            });
+            console.log('btn-vsPlayer listener attached');
+        } else {
+            console.warn('btn-vsPlayer button not found');
         }
-    });
-    
-    document.getElementById('rotate-button').addEventListener('click', toggleOrientation);
-    document.getElementById('play-again').addEventListener('click', resetGame);
+        
+        const btnVsOnline = document.getElementById('btn-vsOnline');
+        if (btnVsOnline) {
+            btnVsOnline.addEventListener('click', () => {
+                console.log('Online mode selected');
+                chooseMode('online');
+            });
+            console.log('btn-vsOnline listener attached');
+        } else {
+            console.warn('btn-vsOnline button not found');
+        }
+        
+        document.getElementById('btn-cancel-queue').addEventListener('click', () => {
+            document.getElementById('waiting-overlay').classList.add('hidden');
+            document.getElementById('mode-overlay').classList.remove('hidden');
+            if (socket) socket.disconnect();
+            init();
+        });
+        
+        document.getElementById('btn-ready').addEventListener('click', () => {
+            document.getElementById('pass-overlay').classList.add('hidden');
+            if (gameState.mode !== 'pvp') return;
+
+            if (placementPlayer !== null) {
+                setupPlacement(placementPlayer);
+                placementPlayer = null;
+                return;
+            }
+
+            if (enemyGrid !== null && playerTurn === false) {
+                gameState.currentPlayer = 1 - gameState.currentPlayer;
+                playerGrid = grids[gameState.currentPlayer];
+                enemyGrid = grids[1 - gameState.currentPlayer];
+                playerShips = ships[gameState.currentPlayer];
+                enemyShips = ships[1 - gameState.currentPlayer];
+                playerTurn = true;
+                updateStatus('Player ' + (gameState.currentPlayer + 1) + ', your turn');
+                renderGrid('player-grid', playerGrid, true);
+                renderGrid('enemy-grid', enemyGrid, false);
+                updateTracker();
+            }
+        });
+        
+        document.getElementById('rotate-button').addEventListener('click', toggleOrientation);
+        document.getElementById('play-again').addEventListener('click', resetGame);
+        
+        console.log('All button listeners attached successfully');
+    } catch (error) {
+        console.error('Fatal error during initialization:', error);
+        document.body.innerHTML += '<div style="background:red;color:white;padding:20px;margin:20px;">ERROR: ' + error.message + '</div>';
+    }
 });
 
 </script>
